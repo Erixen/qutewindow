@@ -1,6 +1,8 @@
 from typing import Optional
 
 from AppKit import NSView, NSMakeRect, NSWindow, NSWindowCloseButton, NSWindowMiniaturizeButton, NSWindowZoomButton
+from Quartz.CoreGraphics import (CGEventCreateMouseEvent,
+                                 kCGEventLeftMouseDown, kCGMouseButtonLeft)
 
 from ctypes import c_void_p
 from functools import reduce
@@ -9,16 +11,17 @@ import objc
 
 from PySide6.QtCore import Qt, QPoint, QSize
 from PySide6.QtGui import QMouseEvent
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QWidget, QPushButton, QVBoxLayout, QDialog, QFrame
 
 
-class QuteWindow(QWidget):
+class QuteWindow(QDialog):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
-        QWidget.__init__(self, parent)
+        QDialog.__init__(self, parent)
         self.setWindowFlags(Qt.Window)
         self.setAttribute(Qt.WA_TranslucentBackground)
+        self.createWinId()
         QuteWindow.merge_content_area_and_title_bar(self.winId())
-        QuteWindow.setTrafficLightsPosition(self.winId(), QPoint(0, 0))
+        self.setVibrancyEffect()
 
     @staticmethod
     def merge_content_area_and_title_bar(win_id: int) -> None:
@@ -61,9 +64,9 @@ class QuteWindow(QWidget):
         maximizeButton = window.standardWindowButton_(NSWindowZoomButton)
 
         # Add the buttons as subviews of the trafficLightsView
-        trafficLightsView.addSubview_(closeButton)
-        trafficLightsView.addSubview_(minimizeButton)
-        trafficLightsView.addSubview_(maximizeButton)
+        trafficLightsView.addSubview_positioned_relativeTo_(closeButton, Cocoa.NSWindowAbove, None)
+        trafficLightsView.addSubview_positioned_relativeTo_(minimizeButton, Cocoa.NSWindowAbove, None)
+        trafficLightsView.addSubview_positioned_relativeTo_(maximizeButton, Cocoa.NSWindowAbove, None)
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         if not self.isFullScreen() and self.isTitleBarArea(event.pos()):
@@ -81,3 +84,31 @@ class QuteWindow(QWidget):
             self.showNormal()
         else:
             self.showMaximized()
+
+    def startSystemMove(self, pos) -> None:
+        view = objc.objc_object(c_void_p=c_void_p(int(self.winId())))
+        window = view.window()
+
+        cgEvent = CGEventCreateMouseEvent(
+            None, kCGEventLeftMouseDown, (pos.x(), pos.y()), kCGMouseButtonLeft)
+        clickEvent = Cocoa.NSEvent.eventWithCGEvent_(cgEvent)
+
+        if clickEvent:
+            window.performWindowDragWithEvent_(clickEvent)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self.isTitleBarArea(event.pos()):
+            self.startSystemMove(event.globalPos())
+
+    def setVibrancyEffect(self) -> None:
+        new_widget = QWidget(self)
+        new_widget.move(0, 0)
+        new_widget.resize(self.size())
+        frame = Cocoa.NSMakeRect(0, 0, new_widget.width(), new_widget.height())
+        visualEffectView = Cocoa.NSVisualEffectView.alloc().initWithFrame_(frame)
+        visualEffectView.setAutoresizingMask_(Cocoa.NSViewWidthSizable | Cocoa.NSViewHeightSizable)
+        visualEffectView.setAllowsVibrancy_(True)
+        view = objc.objc_object(c_void_p=c_void_p(int(new_widget.winId())))
+        window = view.window()
+        contentView = window.contentView()
+        contentView.addSubview_positioned_relativeTo_(visualEffectView, Cocoa.NSWindowBelow, new_widget)
